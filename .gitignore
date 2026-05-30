@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+*.pth
+*.engine
+*.tar
+*.onnx
+*.pt
+*.zip
+*.7z

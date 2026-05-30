@@ -1,0 +1,58 @@
+[
+  {
+    "name": "images",
+    "engine_path": "/home/ssd/code/vh3/src/py_algorithm/comfort_sensing_air_conditioner/tensorrt/tensorrt_analysis/../../data/weights/engines/yolov8m_fp16.engine",
+    "load_time_ms": 2053.401231765747,
+    "infer_time_ms_mean": 14.184794425964355,
+    "infer_time_ms_min": 13.810396194458008,
+    "infer_time_ms_max": 15.980720520019531,
+    "infer_time_ms_std": 0.33537064189888666,
+    "infer_time_ms_p50": 14.088630676269531,
+    "trt_fps": 70.49802555964888,
+    "onnx_time_ms_mean": null,
+    "onnx_fps": null,
+    "speedup": null
+  },
+  {
+    "name": "input",
+    "engine_path": "/home/ssd/code/vh3/src/py_algorithm/comfort_sensing_air_conditioner/tensorrt/tensorrt_analysis/../../data/weights/engines/sixdrepnet_fp16.engine",
+    "load_time_ms": 94.68889236450195,
+    "infer_time_ms_mean": 3.3188796043395996,
+    "infer_time_ms_min": 2.824068069458008,
+    "infer_time_ms_max": 9.073495864868164,
+    "infer_time_ms_std": 0.8223269382519026,
+    "infer_time_ms_p50": 3.1905174255371094,
+    "trt_fps": 301.30650075177493,
+    "onnx_time_ms_mean": null,
+    "onnx_fps": null,
+    "speedup": null
+  },
+  {
+    "name": "data",
+    "engine_path": "/home/ssd/code/vh3/src/py_algorithm/comfort_sensing_air_conditioner/tensorrt/tensorrt_analysis/../../data/weights/engines/sface_fp16.engine",
+    "load_time_ms": 31.514883041381836,
+    "infer_time_ms_mean": 1.9398975372314453,
+    "infer_time_ms_min": 1.5993118286132812,
+    "infer_time_ms_max": 4.981040954589844,
+    "infer_time_ms_std": 0.6042335599128369,
+    "infer_time_ms_p50": 1.7385482788085938,
+    "trt_fps": 515.4911436338878,
+    "onnx_time_ms_mean": null,
+    "onnx_fps": null,
+    "speedup": null
+  },
+  {
+    "name": "input",
+    "engine_path": "/home/ssd/code/vh3/src/py_algorithm/comfort_sensing_air_conditioner/tensorrt/tensorrt_analysis/../../data/weights/engines/repvit_fp16.engine",
+    "load_time_ms": 59.46207046508789,
+    "infer_time_ms_mean": 7.816572189331055,
+    "infer_time_ms_min": 7.674217224121094,
+    "infer_time_ms_max": 8.278846740722656,
+    "infer_time_ms_std": 0.15271898941043885,
+    "infer_time_ms_p50": 7.748126983642578,
+    "trt_fps": 127.93331600837942,
+    "onnx_time_ms_mean": null,
+    "onnx_fps": null,
+    "speedup": null
+  }
+]
