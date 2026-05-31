@@ -72,7 +72,7 @@ def benchmark_model(model_path, dummy_input_fn,
     import onnx
     model = onnx.load(model_path)
     from common.model_utils import count_nodes
-    result['node_count'] = count_nodes(model)
+    result['node_count'] = count_nodes(model.graph)
     return result
 
 
