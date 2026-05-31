@@ -1,0 +1,41 @@
+{
+  "experiment": "exp08_transpose_conv_fusion",
+  "results": [
+    {
+      "model": "Conv_Only",
+      "optimization": "DISABLE_ALL",
+      "nodes_total": 1,
+      "transpose_nodes": 0,
+      "conv_nodes": 1,
+      "mean_ms": 0.6056308746337891,
+      "fps": 1651.1707739548067
+    },
+    {
+      "model": "Conv_Only",
+      "optimization": "ALL",
+      "nodes_total": 1,
+      "transpose_nodes": 0,
+      "conv_nodes": 1,
+      "mean_ms": 0.5840587615966797,
+      "fps": 1712.156491354114
+    },
+    {
+      "model": "T_Conv_T",
+      "optimization": "DISABLE_ALL",
+      "nodes_total": 5,
+      "transpose_nodes": 4,
+      "conv_nodes": 1,
+      "mean_ms": 0.8890700340270996,
+      "fps": 1124.770784895804
+    },
+    {
+      "model": "T_Conv_T",
+      "optimization": "ALL",
+      "nodes_total": 5,
+      "transpose_nodes": 4,
+      "conv_nodes": 1,
+      "mean_ms": 0.5852246284484863,
+      "fps": 1708.7455848383247
+    }
+  ]
+}
