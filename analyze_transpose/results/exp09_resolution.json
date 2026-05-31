@@ -1,0 +1,21 @@
+{
+  "experiment": "exp09_resolution",
+  "results": [
+    {
+      "resolution": "640x640",
+      "model": "Original",
+      "mean_ms": 737.9009699821472,
+      "fps": 1.3551953997623747,
+      "pixels": 1228800,
+      "ns_per_pixel": 600.5053466651589
+    },
+    {
+      "resolution": "640x640",
+      "model": "Modified",
+      "mean_ms": 747.2841000556946,
+      "fps": 1.3381791475631164,
+      "pixels": 1228800,
+      "ns_per_pixel": 608.1413574671993
+    }
+  ]
+}
