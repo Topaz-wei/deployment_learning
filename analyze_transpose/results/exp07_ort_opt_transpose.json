@@ -1,0 +1,67 @@
+{
+  "experiment": "exp07_ort_opt_transpose",
+  "DISABLE_ALL_Original": {
+    "optimization": "DISABLE_ALL",
+    "model": "Original",
+    "total_nodes": 325,
+    "transpose_nodes": 2,
+    "mean_ms": 711.6939401626587,
+    "fps": 1.405098376658158
+  },
+  "DISABLE_ALL_Modified": {
+    "optimization": "DISABLE_ALL",
+    "model": "Modified",
+    "total_nodes": 327,
+    "transpose_nodes": 4,
+    "mean_ms": 768.9371800422668,
+    "fps": 1.3004963551704343
+  },
+  "BASIC_Original": {
+    "optimization": "BASIC",
+    "model": "Original",
+    "total_nodes": 325,
+    "transpose_nodes": 2,
+    "mean_ms": 733.8401889801025,
+    "fps": 1.3626945144416371
+  },
+  "BASIC_Modified": {
+    "optimization": "BASIC",
+    "model": "Modified",
+    "total_nodes": 327,
+    "transpose_nodes": 4,
+    "mean_ms": 734.3118190765381,
+    "fps": 1.3618192898727794
+  },
+  "EXTENDED_Original": {
+    "optimization": "EXTENDED",
+    "model": "Original",
+    "total_nodes": 325,
+    "transpose_nodes": 2,
+    "mean_ms": 702.400758266449,
+    "fps": 1.4236886680874847
+  },
+  "EXTENDED_Modified": {
+    "optimization": "EXTENDED",
+    "model": "Modified",
+    "total_nodes": 327,
+    "transpose_nodes": 4,
+    "mean_ms": 695.7804727554321,
+    "fps": 1.4372349313567205
+  },
+  "ALL_Original": {
+    "optimization": "ALL",
+    "model": "Original",
+    "total_nodes": 325,
+    "transpose_nodes": 2,
+    "mean_ms": 726.0996866226196,
+    "fps": 1.3772213628839318
+  },
+  "ALL_Modified": {
+    "optimization": "ALL",
+    "model": "Modified",
+    "total_nodes": 327,
+    "transpose_nodes": 4,
+    "mean_ms": 810.3434872627258,
+    "fps": 1.234044594321253
+  }
+}
