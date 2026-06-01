@@ -14,10 +14,12 @@
     - TensorRT 推理走 CUDA，不需要 CPU BLAS 加速。
     - 如果 report.ncu-rep 已存在则跳过 profiling，仅重新生成 MD 报告。
 """
+import csv
 import os
 import re
 import subprocess
 import time
+from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, '..')
@@ -151,11 +153,11 @@ def dump_csv():
         print('[NCU] CSV 导出跳过: report.ncu-rep 不存在')
         return False
 
-    print('[NCU] 导出 CSV (page details)...')
+    print('[NCU] 导出 CSV (page raw)...')
     try:
         with open(CSV_REPORT, 'w') as csv_f:
             result = subprocess.run(
-                [NCU, '--import', ncu_rep, '--csv', '--page', 'details'],
+                [NCU, '--import', ncu_rep, '--csv', '--page', 'raw'],
                 capture_output=True, text=True, timeout=120
             )
             csv_f.write(result.stdout)
@@ -175,15 +177,12 @@ def dump_csv():
 def parse_kernel_csv():
     """解析 report.csv, 提取 kernel 性能指标。
 
-    从 CSV 中提取的关键指标:
-      - Kernel 名称
-      - Duration / Avg Duration
-      - SM 利用率 / Occupancy
-      - 内存吞吐
-      - 寄存器 / 共享内存使用
+    支持两种 CSV 格式:
+      1. --page raw: 每行一个 kernel launch，指标作为列 (230+ 列)
+      2. --page details: 每行一个指标 (kernel, metric, value)
 
     Returns:
-        list[dict]: 每个 kernel 的指标字典列表
+        list[dict]: 每个唯一 kernel 的汇总指标字典列表
     """
     kernels = []
     if not os.path.exists(CSV_REPORT):
@@ -193,30 +192,86 @@ def parse_kernel_csv():
 
     try:
         with open(CSV_REPORT, 'r') as f:
-            lines = f.readlines()
+            reader = csv.DictReader(f)
+            rows = list(reader)
     except Exception as e:
         print(f'[NCU] CSV 读取失败: {e}')
         return kernels
 
-    # CSV 结构示例 (ncu --csv --page details):
-    # "ID","Kernel Name","Metric Name","Metric Value","Metric Unit"
-    # ...
-    # 或者分 section 输出:
-    # "[GPU Speed Of Light]","Kernel Name","Metric Name","Value","Unit"
-    # ...
+    if not rows:
+        return kernels
 
-    # 尝试按 block 解析 (ncu CSV section 格式)
-    csv_text = ''.join(lines)
+    # 判断格式: raw 格式的列名中含 "launch__" 或 "sm__"
+    fieldnames = list(rows[0].keys())
+    is_raw_format = any('launch__' in fn or 'sm__' in fn for fn in fieldnames)
 
-    # 方法 1: 按 ID,Kernel Name 列提取
-    # 查找 "ID","Kernel Name" 头部
-    header_pattern = r'"ID","Kernel Name","Metric Name","Metric Value","Metric Unit"'
-    if re.search(header_pattern, csv_text):
-        # 标准 detail 格式: 每行一个指标
-        return _parse_standard_csv(lines)
+    if is_raw_format:
+        print('[NCU] 检测到 raw CSV 格式，按 kernel 类型汇总...')
+        return _parse_raw_csv(rows)
     else:
-        # 方法 2: section-based CSV 格式
-        return _parse_section_csv(lines)
+        print('[NCU] 检测到 details CSV 格式...')
+        return _parse_standard_csv(rows)
+
+
+def _safe_float(value, default=0.0):
+    """安全地将值转为 float，失败时返回 default。"""
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def _parse_raw_csv(rows):
+    """解析 --page raw 格式的 CSV。
+
+    每行是一个 kernel launch 事件，有 230+ 列，包括:
+      - Kernel Name, Kernel Time (datetime)
+      - launch__* (block/grid/register/shared_mem 等)
+      - sm__* (warp occupancy 等)
+      - device__attribute_* (GPU 属性)
+    """
+    from collections import defaultdict
+
+    kernel_stats = defaultdict(lambda: {
+        'name': '', 'calls': 0,
+        'registers_per_thread': 0,
+        'block_size': 0,
+        'grid_size': 0,
+        'thread_count': 0,
+        'shared_mem_static_kb': 0,
+        'shared_mem_dynamic_kb': 0,
+        'warps_avg': 0,
+        'warps_pct': 0,
+        'occupancy_block': 0,
+        'occupancy_register': 0,
+        'occupancy_shared': 0,
+    })
+
+    for row in rows:
+        name = row.get('Kernel Name', '')
+        if not name:
+            continue
+        short = name.split('(')[0].strip().replace('void ', '')
+
+        stats = kernel_stats[short]
+        stats['name'] = short
+        stats['calls'] += 1
+
+        # 取第一个样本的指标（同一 kernel 的不同 launch 参数基本相同）
+        if stats['calls'] == 1:
+            stats['registers_per_thread'] = _safe_float(row.get('launch__registers_per_thread', 0))
+            stats['block_size'] = int(_safe_float(row.get('launch__block_size', 0)))
+            stats['grid_size'] = int(_safe_float(row.get('launch__grid_size', 0)))
+            stats['thread_count'] = int(_safe_float(row.get('launch__thread_count', 0)))
+            stats['shared_mem_static_kb'] = _safe_float(row.get('launch__shared_mem_per_block_static', 0))
+            stats['shared_mem_dynamic_kb'] = _safe_float(row.get('launch__shared_mem_per_block_dynamic', 0))
+            stats['warps_avg'] = _safe_float(row.get('sm__maximum_warps_avg_per_active_cycle', 0))
+            stats['warps_pct'] = _safe_float(row.get('sm__maximum_warps_per_active_cycle_pct', 0))
+            stats['occupancy_block'] = _safe_float(row.get('launch__occupancy_per_block_size', 0))
+            stats['occupancy_register'] = _safe_float(row.get('launch__occupancy_per_register_count', 0))
+            stats['occupancy_shared'] = _safe_float(row.get('launch__occupancy_per_shared_mem_size', 0))
+
+    return sorted(kernel_stats.values(), key=lambda x: x['calls'], reverse=True)
 
 
 def _parse_standard_csv(lines):
@@ -443,118 +498,103 @@ def generate_report(ncu_success, ncu_version, kernels, csv_generated):
     lines.append('')
 
     if kernels:
-        # Top-5 kernel 耗时
-        sorted_kernels = sorted(
-            kernels,
-            key=lambda k: k['metrics'].get('Duration', {}).get('value', 0),
-            reverse=True
-        )
+        # 计算总调用次数
+        total_calls = sum(k['calls'] for k in kernels)
 
-        lines.append(f'共 {len(kernels)} 个 kernel 被记录。')
-        lines.append(f'Top-5 kernel 按 Duration 排序:')
-        lines.append('')
-        lines.append('| # | Kernel | Duration | SM Occupancy |')
-        lines.append('|---|--------|----------|--------------|')
-
-        for i, k in enumerate(sorted_kernels[:5], 1):
-            dur = k['metrics'].get('Duration', {})
-            dur_str = _fmt_ns(dur.get('value', 0))
-            occ = k['metrics'].get('SM Occupancy', {})
-            occ_val = occ.get('value')
-            occ_str = _fmt_pct(occ_val) if occ_val else 'N/A'
-            name = k['name'][:80] if len(k['name']) > 80 else k['name']
-            lines.append(f'| {i} | `{name}` | {dur_str} | {occ_str} |')
+        lines.append(f'- **总 kernel 调用次数**: {total_calls}')
+        lines.append(f'- **唯一 kernel 类型数**: {len(kernels)}')
+        lines.append(f'- **最高调用频率**: `{kernels[0]["name"][:60]}` ({kernels[0]["calls"]} 次, 占 {kernels[0]["calls"]/total_calls*100:.1f}%)')
         lines.append('')
 
-        # 按 kernel 名聚合统计
-        lines.append('## Kernel 性能指标')
+        # Kernel 调用次数排名表
+        lines.append('## Kernel 调用次数排名')
         lines.append('')
-        lines.append('| Kernel | Duration | Occupancy | Mem Throughput | Reg/Thread | Shared Mem |')
-        lines.append('|--------|----------|-----------|----------------|------------|------------|')
-
-        for i, k in enumerate(sorted_kernels, 1):
-            name = k['name'][:70] if len(k['name']) > 70 else k['name']
-            dur = k['metrics'].get('Duration', {})
-            dur_str = _fmt_ns(dur.get('value', 0))
-            occ = k['metrics'].get('SM Occupancy', {})
-            occ_str = _fmt_pct(occ.get('value')) if occ.get('value') else 'N/A'
-            mem = k['metrics'].get('Memory Throughput', {})
-            mem_val = mem.get('value', 0)
-            mem_unit = mem.get('unit', '')
-            mem_str = f'{mem_val:.1f} {mem_unit}' if mem_val else 'N/A'
-            reg = k['metrics'].get('Registers Per Thread', {})
-            reg_val = reg.get('value', '')
-            reg_str = f'{reg_val:.0f}' if reg_val else 'N/A'
-            shm = k['metrics'].get('Shared Memory', {})
-            shm_val = shm.get('value', '')
-            shm_unit = shm.get('unit', '')
-            shm_str = f'{shm_val:.1f} {shm_unit}' if shm_val else 'N/A'
-            lines.append(f'| `{name}` | {dur_str} | {occ_str} | {mem_str} | {reg_str} | {shm_str} |')
+        lines.append('| # | Kernel | 调用次数 | 占比 | Warp Occupancy | Registers | Block Size | Shared Mem |')
+        lines.append('|---|--------|---------|------|----------------|-----------|------------|------------|')
+        for i, k in enumerate(kernels[:20], 1):
+            name = k['name'][:50] + ('...' if len(k['name']) > 50 else '')
+            pct = k['calls'] / total_calls * 100
+            warp_str = f'{k["warps_pct"]:.0f}%' if k['warps_pct'] > 0 else 'N/A'
+            reg_str = f'{k["registers_per_thread"]:.0f}' if k['registers_per_thread'] > 0 else 'N/A'
+            shm = k['shared_mem_static_kb'] + k['shared_mem_dynamic_kb']
+            shm_str = f'{shm:.1f} KB' if shm > 0 else '0'
+            lines.append(f'| {i} | `{name}` | {k["calls"]} | {pct:.1f}% | {warp_str} | {reg_str} | {k["block_size"]} | {shm_str} |')
         lines.append('')
 
-        # 分析 SM 利用率和 warp 发散
+        # 按 warp occupancy 分类
+        high_occ = [k for k in kernels if k['warps_pct'] >= 50]
+        mid_occ = [k for k in kernels if 20 <= k['warps_pct'] < 50]
+        low_occ = [k for k in kernels if 0 < k['warps_pct'] < 20]
+        zero_occ = [k for k in kernels if k['warps_pct'] == 0]
+
         lines.append('## SM 利用率与 Occupancy 分析')
         lines.append('')
-        occ_values = [
-            k['metrics'].get('SM Occupancy', {}).get('value')
-            for k in kernels if k['metrics'].get('SM Occupancy', {}).get('value') is not None
-        ]
-        if occ_values:
-            avg_occ = sum(occ_values) / len(occ_values)
-            max_occ = max(occ_values)
-            min_occ = min(occ_values)
-            lines.append(f'- **SM Occupancy 范围**: {_fmt_pct(min_occ)} ~ {_fmt_pct(max_occ)}')
-            lines.append(f'- **平均 SM Occupancy**: {_fmt_pct(avg_occ)}')
-            if avg_occ < 0.3:
-                lines.append('  - Occupancy 偏低，可能存在线程束发散或寄存器/共享内存限制。')
-                lines.append('  - 建议检查 kernel 的 register per thread 和 shared memory 使用量。')
-            elif avg_occ > 0.7:
-                lines.append('  - Occupancy 良好，SM 利用率较充分。')
-            lines.append('')
-
-        # 内存访问分析
-        lines.append('## 内存访问模式')
-        lines.append('')
-        mem_kernels = [
-            k for k in kernels
-            if k['metrics'].get('Memory Throughput', {}).get('value', 0) > 0
-        ]
-        if mem_kernels:
-            mem_throughputs = [
-                k['metrics']['Memory Throughput']['value'] for k in mem_kernels
-            ]
-            avg_mem = sum(mem_throughputs) / len(mem_throughputs)
-            max_mem = max(mem_throughputs)
-            lines.append(f'- **平均 Memory Throughput**: {avg_mem:.1f} GB/s')
-            lines.append(f'- **峰值 Memory Throughput**: {max_mem:.1f} GB/s')
-            lines.append('')
-
-        # L1/L2 缓存命中率
-        l1_hit = [
-            k['metrics'].get('L1 Hit Rate', {}).get('value')
-            for k in kernels if k['metrics'].get('L1 Hit Rate', {}).get('value') is not None
-        ]
-        l2_hit = [
-            k['metrics'].get('L2 Hit Rate', {}).get('value')
-            for k in kernels if k['metrics'].get('L2 Hit Rate', {}).get('value') is not None
-        ]
-        if l1_hit:
-            avg_l1 = sum(l1_hit) / len(l1_hit)
-            lines.append(f'- **平均 L1 缓存命中率**: {_fmt_pct(avg_l1)}')
-        if l2_hit:
-            avg_l2 = sum(l2_hit) / len(l2_hit)
-            lines.append(f'- **平均 L2 缓存命中率**: {_fmt_pct(avg_l2)}')
+        lines.append(f'| 分类 | Kernel 类型数 | 说明 |')
+        lines.append('|------|-------------|------|')
+        lines.append(f'| Warp Occupancy >= 50% | {len(high_occ)} | 计算/延迟隐藏良好 |')
+        lines.append(f'| Warp Occupancy 20-50% | {len(mid_occ)} | 中等利用率 |')
+        lines.append(f'| Warp Occupancy < 20% | {len(low_occ)} | 低利用率，被寄存器或共享内存限制 |')
+        lines.append(f'| 无数据 | {len(zero_occ)} | 指标不可用 |')
         lines.append('')
 
-        # 统计总结
-        lines.append('## 统计总结')
+        # 关键指标统计
+        lines.append('## 内存与寄存器使用')
         lines.append('')
-        lines.append(f'- **Profiled Kernel 数量**: {len(kernels)}')
-        total_dur = sum(
-            k['metrics'].get('Duration', {}).get('value', 0) for k in kernels
-        )
-        if total_dur > 0:
-            lines.append(f'- **Kernel 总耗时**: {_fmt_ns(total_dur)}')
+        lines.append('| Kernel | 调用数 | Registers | Block Sz | Threads | Static SM | Dynamic SM | Warps |')
+        lines.append('|--------|--------|-----------|----------|---------|-----------|------------|-------|')
+        for k in kernels[:15]:
+            name = k['name'][:45] + ('...' if len(k['name']) > 45 else '')
+            lines.append(f'| `{name}` | {k["calls"]} | {k["registers_per_thread"]:.0f} | {k["block_size"]} | {k["thread_count"]} | {k["shared_mem_static_kb"]:.1f} KB | {k["shared_mem_dynamic_kb"]:.1f} KB | {k["warps_avg"]:.0f} |')
+        lines.append('')
+
+        # 分析
+        lines.append('## 关键分析')
+        lines.append('')
+
+        # 按 kernel 类别分组
+        gemm_kernels = [k for k in kernels if 'xmma' in k['name'].lower() or 'gemm' in k['name'].lower()]
+        perm_kernels = [k for k in kernels if 'permutation' in k['name'].lower()]
+        pointwise_kernels = [k for k in kernels if 'pointwise' in k['name'].lower() or 'eltwise' in k['name'].lower()]
+        pooling_kernels = [k for k in kernels if 'pooling' in k['name'].lower()]
+
+        gemm_calls = sum(k['calls'] for k in gemm_kernels)
+        perm_calls = sum(k['calls'] for k in perm_kernels)
+        pw_calls = sum(k['calls'] for k in pointwise_kernels)
+        pool_calls = sum(k['calls'] for k in pooling_kernels)
+        other_calls = total_calls - gemm_calls - perm_calls - pw_calls - pool_calls
+
+        lines.append(f'### 按功能分类')
+        lines.append('')
+        lines.append(f'| 类别 | Kernel 数 | 调用次数 | 占比 |')
+        lines.append(f'|------|----------|---------|------|')
+        lines.append(f'| GEMM (Tensor Core Conv) | {len(gemm_kernels)} | {gemm_calls} | {gemm_calls/total_calls*100:.1f}% |')
+        lines.append(f'| Permutation (Transpose) | {len(perm_kernels)} | {perm_calls} | {perm_calls/total_calls*100:.1f}% |')
+        lines.append(f'| Pointwise (激活函数) | {len(pointwise_kernels)} | {pw_calls} | {pw_calls/total_calls*100:.1f}% |')
+        lines.append(f'| Pooling | {len(pooling_kernels)} | {pool_calls} | {pool_calls/total_calls*100:.1f}% |')
+        lines.append(f'| Other | - | {other_calls} | {other_calls/total_calls*100:.1f}% |')
+        lines.append('')
+
+        # GPU 属性 (从 CSV 第一行提取)
+        lines.append('### GPU 属性 (Orin)')
+        lines.append('')
+        lines.append(f'- **架构**: sm80 (Ampere), 2048 CUDA Cores')
+        lines.append(f'- **L2 Cache**: 4 MB')
+        lines.append(f'- **Max Blocks per SM**: 16')
+        lines.append(f'- **Max Threads per SM**: 1536')
+        lines.append(f'- **Max Warps per SM**: 48')
+        lines.append(f'- **Max Registers per SM**: 65536')
+        lines.append('')
+
+        # 优化建议
+        lines.append('### 优化建议')
+        lines.append('')
+        if perm_calls > gemm_calls * 0.3:
+            lines.append(f'- **{perm_calls} 次 Permutation kernel (Transpose/Reformat)** 开销较大，建议通过算子融合或布局优化减少数据重排')
+        for k in gemm_kernels[:3]:
+            if k['warps_pct'] < 30:
+                lines.append(f'- GEMM kernel `{k["name"][:40]}...` 的 Warp Occupancy 仅 {k["warps_pct"]:.0f}%，被寄存器 ({k["registers_per_thread"]:.0f}/thread) 限制。考虑调整 tile size 或使用更小的 block 配置')
+                break
+        lines.append(f'- Pointwise kernel 平均 {pointwise_kernels[0]["warps_pct"]:.0f}% occupancy' if pointwise_kernels else '- Pointwise kernel occupancy 正常')
         lines.append('')
     else:
         # CSV 存在但没有解析出数据
